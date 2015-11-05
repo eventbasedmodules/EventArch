@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/EventReactorCompiler"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/EventReactorCore"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/EventReactorRuntime"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/EventReactorUtil"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/jdk1.8.0_51"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/org.eventreactor.language"/>
+	<classpathentry kind="lib" path="D:/Somayeh/University/Dresden/ApplicationLevelEventReactor/EventReactorADL_2.1/eventreactor-adl-2.1/libraries/activemq-all-5.9.1.jar"/>
+	<classpathentry kind="lib" path="D:/Somayeh/University/Dresden/ApplicationLevelEventReactor/EventReactorADL_2.1/eventreactor-adl-2.1/libraries/gson-2.3.1.jar"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>

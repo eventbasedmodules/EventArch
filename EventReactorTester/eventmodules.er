@@ -1,0 +1,324 @@
+//--------------------------------------- Specifications of Event Types --------------------------------
+eventtype BaseEventType{
+		 String publisher;
+		 String publisherGroup;
+		 String publisherInstance;
+		 String target;
+		 String targetGroup;
+		 String targetInstance;
+		 Long timestamp;
+		 Long thread;
+		 String scope;
+}
+
+eventtype CoordinationCommand extends BaseEventType{
+		 String command;
+}
+eventtype ConstituentState extends BaseEventType{
+		 String applicationState;
+		 String serverLoad;
+}
+eventtype StateRequest extends BaseEventType {
+
+}
+
+//--------------------------------------- Specifications of Modules --------------------------------
+modules {
+	WrappedLoadBalancer[Java]:= {ISwitchCoordinatorLB,IStateCoordinatorLB} <->{'LoadBalancer'}
+	WrappedAdaptiveSoftware[Java]:= {ISwitchCoordinatorAS,IStateCoordinatorAS} <->{'AdaptiveSoftware'}
+	
+	SwitchCoordinator[StateMachine] := {ILocalSwitchCoordinator,IGlobalSwitchCoordinator} <->  { 
+		initial state Start { 
+			during:
+				on (ILocalSwitchCoordinator.e_LBStart) -> WaitForSwitch; 
+		} 
+		state WaitForSwitch { 
+			entry:
+			print "we are here.... waiting"
+				 send IGlobalSwitchCoordinator.e_CMD = new CoordinationCommand() {
+					target = 'WrappedAdaptiveSoftware';
+					command = 'switch';
+				};
+			during:	 
+				on (IGlobalSwitchCoordinator.e_SwitchEnd) -> Start;
+			exit:
+			print "we are here.... leaving"
+				send ILocalSwitchCoordinator.e_CMD = new CoordinationCommand(){
+					command = 'proceed';
+					target = 'WrappedLoadBalancer';
+				};
+		}
+		}
+	StateCoordinatorLB[StateMachine] := {ILocalStateCoordinatorLB,IGlobalStateCoordinatorLB} <->  {
+		initial state Idle {
+				during:
+				   on(IGlobalStateCoordinatorLB.e_StateRequest):
+					send IGlobalStateCoordinatorLB.e_LBState = new ConstituentState(){
+						applicationState = 'idling';
+					};
+				
+					on (ILocalStateCoordinatorLB.e_LBStartUnderUtilized):
+						send ILocalStateCoordinatorLB.e_CMD = new CoordinationCommand(){
+						command = 'suspend';
+						};
+						send IGlobalStateCoordinatorLB.e_StateRequest = new StateRequest(){
+							target = 'StateCoordinatorAS';
+						};
+					 on(IGlobalStateCoordinatorLB.e_AppStateIdle) -> Running;
+					 on(IGlobalStateCoordinatorLB.e_StateRequest):
+						send IGlobalStateCoordinatorLB.e_LBState = new ConstituentState(){
+							applicationState = 'idling';
+						};
+	
+			/* 	exit:
+					send ILocalStateCoordinatorLB.e_CMD = new CoordinationCommand(){
+						command = 'suspend';
+					};*/
+				
+			}	
+			
+			/*state GoingToStart {
+				entry:
+					send IGlobalStateCoordinatorLB.e_StateRequest = new StateRequest(){
+						target = 'StateCoordinatorAS';
+					};
+				during:					
+					on(IGlobalStateCoordinatorLB.e_AppStateIdle) -> Running;
+					on(IGlobalStateCoordinatorLB.e_StateRequest):
+						send IGlobalStateCoordinatorLB.e_LBState = new ConstituentState(){
+							applicationState = 'idling';
+						};
+			}*/
+		
+			state Running {
+				entry:
+					send ILocalStateCoordinatorLB.e_CMD = new CoordinationCommand(){
+						command = 'proceed';
+					};
+				during:
+					on(IGlobalStateCoordinatorLB.e_StateRequest):
+						send IGlobalStateCoordinatorLB.e_LBState = new ConstituentState(){
+							applicationState = 'running';
+						};
+					on (ILocalStateCoordinatorLB.e_LBEnd) -> Idle;
+				exit:
+					send IGlobalStateCoordinatorLB.e_LBState = new ConstituentState(){
+						applicationState = 'idling';
+					};
+			}	
+
+	}
+
+	StateCoordinatorAS[StateMachine] := {ILocalStateCoordinatorAS,IGlobalStateCoordinatorAS} <->  {
+		initial state Idle {
+				during:
+				   on(IGlobalStateCoordinatorAS.e_StateRequest):
+					send IGlobalStateCoordinatorAS.e_AppState = new ConstituentState(){
+						applicationState = 'idling';
+					};
+				
+					on (ILocalStateCoordinatorAS.e_AppStart):
+					send ILocalStateCoordinatorAS.e_CMD = new CoordinationCommand(){
+						command = 'suspend';
+					};
+					send IGlobalStateCoordinatorAS.e_StateRequest = new StateRequest(){
+						target = 'StateCoordinatorLB';
+					};
+	
+					on(IGlobalStateCoordinatorAS.e_LBStateIdle) -> Running;
+					on(IGlobalStateCoordinatorAS.e_StateRequest):
+						send IGlobalStateCoordinatorAS.e_AppState = new ConstituentState(){
+							applicationState = 'idling';
+						};
+/* 				exit:
+					send ILocalStateCoordinatorAS.e_CMD = new CoordinationCommand(){
+						command = 'suspend';
+					};*/
+				
+			}	
+			
+			/*state GoingToStart {
+				entry:
+					send IGlobalStateCoordinatorAS.e_StateRequest = new StateRequest(){
+						target = 'StateCoordinatorLB';
+					};
+				during:					
+					on(IGlobalStateCoordinatorAS.e_LBStateIdle) -> Running;
+					on(IGlobalStateCoordinatorAS.e_StateRequest):
+						send IGlobalStateCoordinatorAS.e_AppState = new ConstituentState(){
+							applicationState = 'idling';
+						};
+			}*/
+		
+			state Running {
+				entry:
+					send ILocalStateCoordinatorAS.e_CMD = new CoordinationCommand(){
+						command = 'proceed';
+					};
+				during:
+					on(IGlobalStateCoordinatorAS.e_StateRequest):
+						send IGlobalStateCoordinatorAS.e_AppState = new ConstituentState(){
+							applicationState = 'running';
+						};
+					on (ILocalStateCoordinatorAS.e_AppEnd) -> Idle;
+				exit:
+					send IGlobalStateCoordinatorAS.e_AppState = new ConstituentState(){
+						applicationState = 'idling';
+					};
+			}	
+
+	}	
+	CoordinatedLoadBalancer[Composite]:= {SwitchCoordinator, StateCoordinatorLB} <-> {WrappedLoadBalancer}
+	CoordinatedAdaptiveSoftware[Composite]:= {StateCoordinatorAS} <-> {WrappedAdaptiveSoftware}
+	
+}
+//--------------------------------------- Specifications of Load Balancer Interfaces --------------------------------
+interface ISwitchCoordinatorLB local to CoordinatedLoadBalancer for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+								 E.publisher== 'SwitchCoordinator' }
+	}
+	provides {
+		ConstituentState e_StartLB := 
+				before	execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+				if	(load =='OverUtilized') 
+				{ 
+					serverLoad = load;
+					applicationState = 'StartExecuting';
+					target = 'SwitchCoordinator';
+				}
+		wait when (e_StartLB) until (e_CoordinationCMD){
+				switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend':	suspend;
+				}			
+		}
+	}
+}
+interface IStateCoordinatorLB local to CoordinatedLoadBalancer for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinatorLB'}
+	}	
+	provides {		
+		ConstituentState e_StartLB := 
+				before execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+						if	(load =='UnderUtilized') { 
+							serverLoad = load; 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinatorLB';
+						}
+		wait when (e_StartLB) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+				}			
+		}
+		ConstituentState e_EndLB := after execution (void org.dummy.loadbalancer.Migrator.migrate(..)){ 
+				applicationState = 'EndExecuting';
+		}
+	}
+}
+//--------------------------------------- Specifications of Adaptive Software Interfaces --------------------------------
+interface ISwitchCoordinatorAS for WrappedAdaptiveSoftware{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof	'CoordinationCommand' && 
+													 E.publisher == 'SwitchCoordinator' &&
+													 E.target == 'WrappedAdaptiveSoftware'}
+		on (e_CoordinationCMD) {invoke ('org.dummy.application.Optimizer', 'reconfigure',e_CoordinationCMD); }
+	}	
+	provides { 
+		ConstituentState e_EndSwitch := 
+			after execution (static void org.dummy.application.Optimizer.reconfigure(..)) {	
+					applicationState = 'SwitchEnd';	}
+	}					
+}
+interface IStateCoordinatorAS local to CoordinatedAdaptiveSoftware for WrappedAdaptiveSoftware{
+requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinatorAS'}
+	}	
+	provides {		
+		ConstituentState e_AppStart := 
+				before execution (void org.dummy.application.ApplicationComponent.execute(..)) 
+						{ 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinatorAS';
+						}
+		wait when (e_AppStart) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+				}			
+		}
+		ConstituentState e_AppEnd := after execution (void org.dummy.application.ApplicationComponent.execute(..)){ 
+				applicationState = 'EndExecuting';
+				target = 'StateCoordinatorAS';
+				
+		}
+	}}
+//--------------------------------- Specifications of Coordinator Interfaces -------------------------
+interface ILocalSwitchCoordinator local to CoordinatedLoadBalancer for SwitchCoordinator{
+  	requires {
+		ConstituentState e_LBStart= {E | E instanceof	'ConstituentState'	&& 
+										  E.publisher == 'WrappedLoadBalancer' && 
+										  E.applicationState == 'StartExecuting' &&
+										  E.serverLoad == 'OverUtilized'}
+	} 
+	provides { CoordinationCommand e_CMD;} 
+}				
+interface IGlobalSwitchCoordinator for SwitchCoordinator{
+  	requires {
+		ConstituentState e_SwitchEnd = {E | E instanceof 'ConstituentState' &&	
+											 E.publisher == 'WrappedAdaptiveSoftware' && 
+											 E.applicationState	=='SwitchEnd'} 
+	} 
+	provides { CoordinationCommand e_CMD;} 
+}
+
+interface ILocalStateCoordinatorLB local to CoordinatedLoadBalancer for StateCoordinatorLB{
+requires {
+		ConstituentState e_LBStartUnderUtilized = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedLoadBalancer' && 
+										  			   E.applicationState == 'StartExecuting' && 
+									  				   E.serverLoad == 'UnderUtilized'}
+		
+		ConstituentState e_LBEnd = {E | E instanceof 'ConstituentState' && E.applicationState == 'EndExecuting'}
+	}
+provides { CoordinationCommand e_CMD;} 
+	
+}				
+interface IGlobalStateCoordinatorLB for StateCoordinatorLB{
+requires
+{
+		StateRequest e_StateRequest = { E | E instanceof 'StateRequest' && E.publisher == 'StateCoordinatorAS'}
+		ConstituentState e_AppStateIdle = {E | E instanceof 'ConstituentState' && E.applicationState == 'idling' 
+												&& E.publisher == 'StateCoordinatorAS'	}
+		ConstituentState e_AppStateRunning= {E | E instanceof 'ConstituentState' && E.applicationState == 'running' &&
+												 E.publisher == 'StateCoordinatorAS'}
+		}
+provides { ConstituentState e_LBState; StateRequest e_StateRequest;}	
+}
+
+interface ILocalStateCoordinatorAS local to CoordinatedAdaptiveSoftware for StateCoordinatorAS{
+requires {
+		ConstituentState e_AppStart = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedAdaptiveSoftware' && 
+										  			   E.applicationState == 'StartExecuting'}
+		
+		ConstituentState e_AppEnd = {E | E instanceof 'ConstituentState' && E.applicationState == 'EndExecuting'}
+	}
+provides { CoordinationCommand e_CMD;} 
+	
+}				
+interface IGlobalStateCoordinatorAS for StateCoordinatorAS{
+requires
+{
+		StateRequest e_StateRequest = { E | E instanceof 'StateRequest' && E.publisher == 'StateCoordinatorLB'}
+		ConstituentState e_LBStateIdle = {E | E instanceof 'ConstituentState' && E.applicationState == 'idling' 
+												&& E.publisher == 'StateCoordinatorLB'	}
+		ConstituentState e_LBStateRunning= {E | E instanceof 'ConstituentState' && E.applicationState == 'running' &&
+												 E.publisher == 'StateCoordinatorLB'}
+		}
+provides { ConstituentState e_AppState; StateRequest e_StateRequest;}	
+}
