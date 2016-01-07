@@ -1,0 +1,5 @@
+cpu_usage 10
+cpu_usage 70
+cpu_usage 30
+cpu_usage 20
+cpu_usage 80

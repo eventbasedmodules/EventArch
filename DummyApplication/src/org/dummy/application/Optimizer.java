@@ -6,7 +6,13 @@ public class Optimizer {
 
 	public static void reconfigure(ERBaseEventType event)
 	{
-		System.out.println("Event is recieved "+ event.getEventName() +" by Dummy Application");
+		try{
+			System.out.println("Reconfiguring the application....");
+			Thread.sleep(6000);
+		}catch(Exception exc){
+			exc.printStackTrace();
+		}
+	
 	}
 }
 

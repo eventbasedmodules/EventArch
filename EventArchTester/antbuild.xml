@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<project name = "EventArchTester" default = "build">
+
+	<property file = "build.properties" />
+	<target name = "clean">
+		<delete>
+			<fileset dir = "${build.dir}" >
+				<include name = "**/*.class" />
+			</fileset>
+		</delete>
+	</target>
+
+	<path id = "master-classpath">
+		<fileset dir="${libraries.dir}">
+			<include name = "*.jar" />
+		</fileset>
+	</path>
+	<path id = "run-classpath">
+		<fileset dir="${build.dir}">
+					<include name = "*.class" />
+		</fileset>
+		<fileset dir="${libraries.dir}">
+					<include name = "*.jar" />
+				</fileset>
+	</path>
+	<target name = "build" depends = "clean">
+		<javac source="1.7" target = "1.7" destdir="${build.dir}" nowarn="true">
+			<src path = "${src.dir}" />
+			<classpath refid = "master-classpath" />
+		</javac>
+	</target>
+
+	<target name = "run" depends = "build">
+		<java fork="true" failonerror="yes" classname="Tester" >
+	         <arg line="config=testerconfiguration.xml"/>
+			<classpath> 
+			    <path refid="run-classpath" />
+			    <pathelement location="${build.dir}" />
+			</classpath>
+        </java>
+	</target> 
+
+</project>

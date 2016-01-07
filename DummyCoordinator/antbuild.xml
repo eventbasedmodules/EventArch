@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<project name="DummyCoordinator" basedir="." default="build">
+   <property file="build.properties" />
+
+   <path id="master-classpath">
+      <fileset dir="${libraries.dir}">
+         <include name="*.jar"/>
+      	<exclude name = "${name}.jar" />
+      </fileset>
+   </path>
+
+   <target name="clean" description="Clean output directories">
+	      <delete>
+	         <fileset dir="${build.dir}">
+	            <include name="**/*.class"/>
+	         </fileset>
+	      </delete>
+   </target>
+
+   <target name="build" description="Compile ${name} files" depends = "clean">
+      <mkdir dir="${build.dir}"/>
+      <javac destdir="${build.dir}" source="1.7" target="1.7" nowarn="true">
+         <src path="${src.dir}"/>
+         <classpath refid="master-classpath"/>
+      </javac>
+   </target>
+	<target name="build-jar" depends = "build">
+	   <jar destfile="${build.dir}/${name}.jar"
+	      basedir="${build.dir}"
+	      includes="**/*.class">
+	   </jar>
+	</target>
+	
+	<target name="deploy" description="Deploy the output jar file" depends = "build-jar">
+			  <copy file="${build.dir}/${name}.jar" todir="${deploy.dir}" />
+	</target>
+
+</project>

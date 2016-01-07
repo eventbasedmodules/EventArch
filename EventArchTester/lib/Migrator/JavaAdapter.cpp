@@ -1,0 +1,308 @@
+#include "JavaAdapter.h"
+
+void JavaAdapter::setJNIEnv(JNIEnv* nenv){
+	env = nenv;
+}
+
+void JavaAdapter::setObj(jobject nobj){
+	obj = nobj;
+}
+
+void JavaAdapter::registerEvent(ERBaseEventType *event){
+	string eventJSONString = getJSONforEvent(event);
+	const char* eventJSON = eventJSONString.c_str();
+	jstring eventJSONArg = env->NewStringUTF(eventJSON);
+	jclass activityClass = env->GetObjectClass(obj);
+    	jmethodID registerEventMethodID = env->GetMethodID(activityClass, "registerEvent", "(Ljava/lang/String;)V");
+	if (registerEventMethodID == 0)
+	{
+		cout << "method registerEvent not found" << endl;
+		return;
+	}
+	env->CallVoidMethod(obj, registerEventMethodID, eventJSONArg);
+}
+
+void JavaAdapter::publish(string eventName){
+	const char* eventNme = eventName.c_str();
+	jstring eventNmeArg = env->NewStringUTF(eventNme);
+	jclass activityClass = env->GetObjectClass(obj);
+    	jmethodID getpublishMethodID = env->GetMethodID(activityClass, "publish", "(Ljava/lang/String;)V");
+	if (getpublishMethodID == 0)
+	{
+		cout << "method publish not found" << endl;
+		return;
+	}
+	env->CallVoidMethod(obj, getpublishMethodID, eventNmeArg);
+}
+
+long JavaAdapter::getLastPingFor(string eventName){
+	jstring  eventNameArg = env->NewStringUTF(eventName.c_str());
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID getLastPingForMethodID = env->GetMethodID(activityClass, "getLastPingFor", "(Ljava/lang/String;)J");
+	if (getLastPingForMethodID == 0)
+	{
+		cout << "method getLastPingFor not found" << endl;
+		return -1;
+	}
+	return env->CallLongMethod(obj, getLastPingForMethodID, eventNameArg);
+}
+
+void JavaAdapter::registerWait(string eventName){
+	jstring  eventNameArg = env->NewStringUTF(eventName.c_str());
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID registerWaitMethodID = env->GetMethodID(activityClass, "registerWait", "(Ljava/lang/String;)V");
+	if (registerWaitMethodID == 0)
+	{
+		cout << "method registerWait not found" << endl;
+		return;
+	}
+	env->CallVoidMethod(obj, registerWaitMethodID, eventNameArg);
+}
+
+bool JavaAdapter::activeConsumers(ERBaseEventType *s){
+	const char* topics = s->getDynamicContextVal("targetGroup").c_str();
+	if (topics && topics[0] == '\0') {
+		topics = s->getDynamicContextVal("scope").c_str();
+		if (topics && topics[0] == '\0') {
+			topics = groups.c_str();
+		}
+	}
+	jstring topicsArg = env->NewStringUTF(topics);
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID getActiveConsumersMethodID = env->GetMethodID(activityClass, "activeConsumers", "(Ljava/lang/String;)Z");
+	if (getActiveConsumersMethodID == 0)
+	{
+		cout << "method activeConsumers not found" << endl;
+		return true;
+	}
+	return env->CallBooleanMethod(obj, getActiveConsumersMethodID, topicsArg);
+}
+
+ERCommand * JavaAdapter::getCommand(string eventName, string timestamp){
+	ERCommand * result = NULL;
+	jstring  eventNameArg = env->NewStringUTF(eventName.c_str());
+	jstring  timestampArg = env->NewStringUTF(timestamp.c_str());
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID getCommandMethodID = env->GetMethodID(activityClass, "getCommand", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+	if (getCommandMethodID == 0)
+	{
+		cout << "method getCommand not found" << endl;
+		return result;
+	}
+	jstring res = (jstring)env->CallObjectMethod(obj, getCommandMethodID, eventNameArg, timestampArg);
+	string commandJSON(env->GetStringUTFChars(res,0));
+	if(!commandJSON.empty()){
+		result = new ERCommand();
+		result->setType(ERCommand::getTypeForString(getJsonStringAttributeValue(commandJSON, "type")));
+		result->setEvent(getJsonStringAttributeValue(commandJSON, "event"));
+		result->setSecondCommand(ERCommand::getTypeForString(getJsonStringAttributeValue(commandJSON, "secondCommand"))); 
+	}
+	return result;
+}
+
+string JavaAdapter::getJsonStringAttributeValue(string json, string attribute){
+	string res;
+	string stringToFind = "\"" + attribute + "\":\"";
+	int startIndex = json.find(stringToFind, 0) + attribute.size() + 4;
+	int endIndex = json.find("\"", startIndex);
+	if(endIndex - startIndex == 0){
+		res = "";
+	} else {
+		res = json.substr(startIndex, endIndex - startIndex);
+	}
+	return res;
+}
+
+string JavaAdapter::getJSONforMap(map<string, string> map){
+	string json = "";
+	if (!map.empty()){
+		for(std::map<string, string>::iterator it = map.begin(); it != map.end(); ++it) {
+			json += "\"";
+			json += (string)it->first;
+			json += "\":";
+			json += "\"";
+			json += (string)it->second;
+			json += "\"";
+			if(it == map.end() || it != --map.end()){
+				json += ",";
+			}
+			//if ( s.getStaticContext().end() - it == 1 ){
+			//	json += ",";
+			//}
+		}
+	}
+	return json;
+ }
+
+ string JavaAdapter::getJSONforEvent(ERBaseEventType *s){
+	string json = "{\"type\":\"";
+	json += s->getType();
+
+	json += "\",\"eventName\":\"";
+	json += s->getEventName();
+
+ 	json += "\",\"staticcontext\":{";
+
+	json += getJSONforMap(s->getStaticContext());
+
+	json += "},\"dynamiccontext\":{";
+
+	json += getJSONforMap(s->getDynamicContext());
+
+	json += "},\"staticcontextvals\":{";
+	
+	json += getJSONforMap(s->getStaticContextVals());
+
+	json += "},\"dynamiccontextvals\":{";
+
+	json += getJSONforMap(s->getDynamicContextVals());
+
+	json += "}";
+
+	//end
+	json += "}";
+	return json;
+ }
+
+ERBaseEventType * JavaAdapter::parseJSON(string json){
+
+	if(json.size() == 0){
+		return NULL;
+	}
+
+	vector<std::string> elems;
+	vector<string> temp;
+	string staticcontext;
+	string dynamiccontext;
+	string type;
+	string staticcontextvals;
+	string dynamiccontextvals;
+	
+	ERBaseEventType * event = new ERBaseEventType();
+
+	
+	//get type
+	int startIndex = json.find("{\"type\":\"", 0) + 9;
+	int endIndex = json.find("\"", startIndex);
+	if(endIndex - startIndex == 0){
+		type = "";
+	} else {
+		type = json.substr(startIndex, endIndex - startIndex);
+	}
+	//cout << "type = " << type << endl;
+
+
+
+	//get staticcontext
+	startIndex = json.find(",\"staticcontext\":{", endIndex) + 18;
+	endIndex = json.find("}", startIndex);
+	if(endIndex - startIndex == 0){
+		staticcontext = "";
+	} else {
+		staticcontext = json.substr(startIndex, endIndex - startIndex);
+	}
+	//cout << "staticcontext = " << staticcontext << endl;
+
+	//get dynamiccontext
+	startIndex = json.find(",\"dynamiccontext\":{", endIndex) + 19;
+	endIndex = json.find("}", startIndex);
+	if(endIndex - startIndex == 0){
+		dynamiccontext = "";
+	} else {
+		dynamiccontext = json.substr(startIndex, endIndex - startIndex);
+	}
+	//cout << "dynamiccontext = " << dynamiccontext << endl;
+
+	//get dynamiccontextvals
+	startIndex = json.rfind(",\"dynamiccontextvals\":{") + 23;
+	endIndex = json.rfind("}");
+	string tmp = json.substr(startIndex, endIndex - startIndex);
+	int nstartIndex = 0;
+	int nendIndex = tmp.rfind("}");
+	if(nendIndex - nstartIndex == 0){
+		dynamiccontextvals = "";
+	} else {
+		dynamiccontextvals = tmp.substr(nstartIndex, nendIndex - nstartIndex);
+	}
+	//cout << "dynamiccontextvals = " << dynamiccontextvals << endl;
+
+	//get staticcontextvals
+	tmp = json.substr(0, startIndex);
+	startIndex = tmp.rfind(",\"staticcontextvals\":{") + 22;
+	endIndex = tmp.rfind("}");
+	if(endIndex - startIndex == 0){
+		staticcontextvals = "";
+	} else {
+		staticcontextvals = tmp.substr(startIndex, endIndex - startIndex);
+	}
+	//cout << "staticcontextvals = " << staticcontextvals << endl;
+
+
+	event->setType(type);
+
+	event->setStaticContext(parseJSONtoMap(staticcontext));
+	event->setDynamicContext(parseJSONtoMap(dynamiccontext));
+	event->setStaticContextVals(parseJSONtoMap(staticcontextvals));
+	event->setDynamicContextVals(parseJSONtoMap(dynamiccontextvals));
+	return event;
+}
+
+map<string, string> JavaAdapter::parseJSONtoMap(string json){
+	map<string, string> result;
+	if(!json.empty()){
+		vector<string> pairs = split(json, ",");
+		if(!pairs.empty()){
+			for(vector<string>::iterator it = pairs.begin(); it != pairs.end(); ++it) {
+				//cout << "pair:" << *it << endl;
+				vector<string> keyValue = split(*it, ":");
+				if(keyValue[1].at(0) == '"'){
+					result.insert(pair<string,string>(split(keyValue[0], "\"")[1], split(keyValue[1], "\"")[1]));
+					//cout << "key: " << split(keyValue[0], "\"")[1] << " value: " << split(keyValue[1], "\"")[1] << endl;
+				} else {
+					result.insert(pair<string,string>(split(keyValue[0], "\"")[1], keyValue[1]));
+					//cout << "key: " << split(keyValue[0], "\"")[1] << " value: " << keyValue[1] << endl;	
+				}
+			}
+		}
+	}
+	return result;
+}
+
+vector<string> JavaAdapter::split(string s, string delimiter) {
+	vector<string> res;
+	size_t last = 0;
+	size_t next = 0;
+	while ((next = s.find(delimiter, last)) != string::npos) {
+		res.push_back(s.substr(last, next-last));
+		last = next + delimiter.size();
+	}
+	res.push_back(s.substr(last));
+	return res;
+}
+
+bool JavaAdapter::stackContains(ERBaseEventType * event, string selectorName){
+	jstring eventNameArg = env->NewStringUTF(event->getEventName().c_str());
+	jstring selectorNameArg = env->NewStringUTF(selectorName.c_str());
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID stackContainsMethodID = env->GetMethodID(activityClass, "stackContains", "(Ljava/lang/String;Ljava/lang/String;)Z");
+	if (stackContainsMethodID == 0)
+	{
+		cout << "method stackContains not found" << endl;
+		return false;
+	}
+	return env->CallBooleanMethod(obj, stackContainsMethodID, eventNameArg, selectorNameArg);
+}
+
+
+bool JavaAdapter::stackIs(ERBaseEventType * event, string selectorName, int index){
+	jstring eventNameArg = env->NewStringUTF(event->getEventName().c_str());
+	jstring selectorNameArg = env->NewStringUTF(selectorName.c_str());
+	jclass activityClass = env->GetObjectClass(obj);
+	jmethodID stackIsMethodID = env->GetMethodID(activityClass, "stackIs", "(Ljava/lang/String;Ljava/lang/String;I)Z");
+	if (stackIsMethodID == 0)
+	{
+		cout << "method stackIs not found" << endl;
+		return false;
+	}
+	return env->CallBooleanMethod(obj, stackIsMethodID, eventNameArg, selectorNameArg, index);
+}

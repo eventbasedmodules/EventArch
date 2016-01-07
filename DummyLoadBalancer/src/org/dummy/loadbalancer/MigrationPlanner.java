@@ -4,7 +4,13 @@ public class MigrationPlanner {
 
 	public void plan(String load)
 	{
-		System.out.println("Planning started for the load " + load);
+		
+		try{
+			System.out.println("Planning started for the load " + load +"...");
+//			Thread.sleep(6000);
+		}catch(Exception exc){
+			exc.printStackTrace();
+		}
 	}
 }
 //

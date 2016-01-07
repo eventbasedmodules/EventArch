@@ -1,0 +1,234 @@
+//--------------------------------------- Specifications of Event Types --------------------------------
+eventtype BaseEventType{
+		 String publisher;
+		 String publisherGroup;
+		 String publisherInstance;
+		 String target;
+		 String targetGroup;
+		 String targetInstance;
+		 Long timestamp;
+		 Long thread;
+		 String scope;
+}
+
+eventtype CoordinationCommand extends BaseEventType{
+		 String command;
+}
+eventtype ConstituentState extends BaseEventType{
+		 String applicationState;
+		 String serverLoad;
+}
+//--------------------------------------- Specifications of Modules --------------------------------
+modules {
+	WrappedLoadBalancer[Java]:= {ISwitchCoordinatorLB,IStateCoordinatorLB} <->{'LoadBalancer'}
+	WrappedAdaptiveSoftware[Java]:= {ISwitchCoordinatorAS,IStateCoordinatorAS} <->{'AdaptiveSoftware'}
+	
+	SwitchCoordinator[StateMachine] := {ISwitchCoordinator} <->  { 
+		initial state Start { 
+			during:
+				on (ISwitchCoordinator.e_LBStart) -> WaitForSwitch; 
+		} 
+		state WaitForSwitch { 
+			entry:
+			print "we are here in switch coordinator.... waiting";
+				 send ISwitchCoordinator.e_CMD = new CoordinationCommand() {
+					target = 'WrappedAdaptiveSoftware';
+					command = 'switch';
+				};
+			during:	 
+				on (ISwitchCoordinator.e_SwitchEnd) -> Start;
+			exit:
+			print "we are here leaving switch coordinator";
+				send ISwitchCoordinator.e_CMD = new CoordinationCommand(){
+					command = 'proceed';
+					target = 'WrappedLoadBalancer';
+				};
+		}
+		}
+	StateCoordinator[StateMachine] := {IStateCoordinator} <->  {
+		initial state Start {
+				during:
+					on (IStateCoordinator.e_AppStart) {
+	 						send IStateCoordinator.e_CMD = new CoordinationCommand(){
+	 							command = 'proceed';
+	 							target ='WrappedAdaptiveSoftware';
+	 						  };
+	 						} -> SuspendLB;
+					
+					on (IStateCoordinator.e_LBStartUnderUtilized) {
+	 						send IStateCoordinator.e_CMD = new CoordinationCommand(){
+	 							command = 'proceed';
+	 							target ='WrappedLoadBalancer';
+	 						}; 
+					}-> SuspendAS;
+		} 
+		state SuspendLB {
+				entry:
+				print "we are here in state coordinator.... suspending load balancer";
+				
+				during:
+					on (IStateCoordinator.e_AppEnd){
+	 						send IStateCoordinator.e_CMD = new CoordinationCommand(){
+	 							command = 'retry';
+	 							target ='WrappedLoadBalancer';
+	 						};
+	 				} -> Start;
+	 			exit:
+	 				print "we are leaving to Start";
+	 					
+		}
+		state SuspendAS {
+			entry:
+				print "we are here in state coordinator.... suspending application";
+				
+				during:
+					on (IStateCoordinator.e_LBEndUnderUtilized) {
+	 						send IStateCoordinator.e_CMD = new CoordinationCommand(){
+	 							command = 'retry';
+	 							target ='WrappedAdaptiveSoftware';
+	 						};
+	 				}  -> Start;
+	 			exit:
+	 				print "we are leaving to Start";
+	 				
+		}
+ }
+
+}
+//--------------------------------------- Specifications of Load Balancer Interfaces --------------------------------
+interface ISwitchCoordinatorLB for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+								 E.publisher== 'SwitchCoordinator' &&
+								 E.target == 'WrappedLoadBalancer'}
+	}
+	provides {
+		ConstituentState e_StartLB := 
+				before	execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+				if	(load =='OverUtilized') 
+				{ 
+					serverLoad = load;
+					applicationState = 'StartExecuting';
+					target = 'SwitchCoordinator';
+				}
+		wait when (e_StartLB) until (e_CoordinationCMD){
+				switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend':	suspend;
+				}			
+		}
+	}
+}
+interface IStateCoordinatorLB for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinator' && 
+												E.target == 'WrappedLoadBalancer'}
+	}	
+	provides {		
+		ConstituentState e_StartLB := 
+				before execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+						if	(load =='UnderUtilized') { 
+							serverLoad = load; 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinator';
+						}
+		wait when (e_StartLB) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+					case 'retry': retry;
+				}			
+		}
+		ConstituentState e_EndLB := after execution (void org.dummy.loadbalancer.Migrator.migrate(..)){ 
+				applicationState = 'EndExecuting';
+				target = 'StateCoordinator';
+				serverLoad = 'UnderUtilized'; 
+				
+		}
+	}
+}
+//--------------------------------------- Specifications of Adaptive Software Interfaces --------------------------------
+functional interface MyInterface for WrappedAdaptiveSoftware{
+	provides {
+		port execute in org.dummy.application.ApplicationComponent;
+	}
+}
+
+interface ISwitchCoordinatorAS for WrappedAdaptiveSoftware{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof	'CoordinationCommand' && 
+													 E.publisher == 'SwitchCoordinator' &&
+													 E.target == 'WrappedAdaptiveSoftware'}
+		on (e_CoordinationCMD) {invoke ('org.dummy.application.Optimizer', 'reconfigure',e_CoordinationCMD); }
+	}	
+	provides { 
+		ConstituentState e_EndSwitch := 
+			after execution (static void org.dummy.application.Optimizer.reconfigure(..)) {	
+					applicationState = 'SwitchEnd';	}
+	}					
+}
+interface IStateCoordinatorAS for WrappedAdaptiveSoftware{
+requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinator' &&
+												E.target == 'WrappedAdaptiveSoftware'}
+	}	
+	provides {		
+		ConstituentState e_AppStart := 
+				before execution (void org.dummy.application.ApplicationComponent.execute(..)) 
+						{ 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinator';
+						}
+		wait when (e_AppStart) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+					case 'retry': retry;
+					
+				}			
+		}
+		ConstituentState e_AppEnd := after execution (void org.dummy.application.ApplicationComponent.execute(..)){ 
+				applicationState = 'EndExecuting';
+				target = 'StateCoordinator';
+				
+		}
+	}}
+//--------------------------------- Specifications of Coordinator Interfaces -------------------------
+interface ISwitchCoordinator for SwitchCoordinator{
+  	requires {
+		ConstituentState e_LBStart= {E | E instanceof	'ConstituentState'	&& 
+										  E.publisher == 'WrappedLoadBalancer' && 
+										  E.applicationState == 'StartExecuting' &&
+										  E.serverLoad == 'OverUtilized'}
+		ConstituentState e_SwitchEnd = {E | E instanceof 'ConstituentState' &&	
+											 E.publisher == 'WrappedAdaptiveSoftware' && 
+											 E.applicationState	=='SwitchEnd'}										  
+	} 
+	provides { CoordinationCommand e_CMD;} 
+}				
+
+interface IStateCoordinator for StateCoordinator{
+requires {
+		ConstituentState e_LBStartUnderUtilized = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedLoadBalancer' && 
+										  			   E.applicationState == 'StartExecuting' && 
+									  				   E.serverLoad == 'UnderUtilized'}
+
+		ConstituentState e_LBEndUnderUtilized = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedLoadBalancer' && 
+										  			   E.applicationState == 'EndExecuting' && 
+									  				   E.serverLoad == 'UnderUtilized'}
+									  				   
+		ConstituentState e_AppStart = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedAdaptiveSoftware' && 
+										  			   E.applicationState == 'StartExecuting'}
+		
+		ConstituentState e_AppEnd = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedAdaptiveSoftware' && 
+										  			   E.applicationState == 'EndExecuting'}
+	}
+provides { CoordinationCommand e_CMD;} 
+	
+}				
