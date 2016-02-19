@@ -6,7 +6,7 @@
 	</compilers>	
 	<inputs>
 		<!--  Adjust the path in your computer -->	
-		<specifications path="D:/EventArchTester/TestComposite">
+		<specifications path="D:/EventArchTester/TestPeer2Peer">
 			<specification file="eventmodules.er" />
 			<specification file="initialize.er" />	
 		</specifications>
