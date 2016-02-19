@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<config>
+	<compilers>
+		<!--  Adjust this path in your computer -->
+		<compiler name ="AspectJ" path = "C:/aspectj1.8/bin/" />
+	</compilers>	
+	<inputs>
+		<!--  Adjust the path in your computer -->	
+		<specifications path="D:/EventArchTester/TestComposite">
+			<specification file="eventmodules.er" />
+			<specification file="initialize.er" />	
+		</specifications>
+		<applications>
+		<!--  Adjust the path to the 'libraries' and 'application' folders in your computer -->	
+		   <application name="AdaptiveSoftware" language="java" mainclass="org.dummy.application.Tester" method="main">
+				<files>
+					<entry path="./application/" file = "DummyApplication.jar" />
+				</files>
+				<libraries path="../libraries/"></libraries>
+			</application>
+			
+			<!--  Use this information to compile Java version of load balancer -->
+			<!--  Adjust the path to the 'libraries' and 'application' folders in your computer -->	
+			<application name="LoadBalancer" language="java" mainclass="org.dummy.loadbalancer.Tester" method="main">
+				<files>
+					<entry path="./application/" file = "DummyLoadBalancer.jar" />
+				</files>
+				<libraries path="../libraries/"></libraries>
+			</application>
+			
+			
+			<!--  Use this information to compile CPP version of load balancer -->
+			<!--<application name="LoadBalancer" language="cpp" linkerflag="virt" mainclass="MigrationApp" method="userinput">
+				<files>
+					<entry path="./application/" file="MigrationApp.cpp"/>
+				</files>
+				<libraries>
+				<entry path="./lib/Migrator/" file="ERBaseEventType.cpp"/>
+				<entry path="./lib/Migrator/" file="ERCommand.cpp"/>
+				<entry path="./lib/Migrator/" file="JavaAdapter.cpp"/>
+				<entry path="./lib/Migrator/" file="activemq-all-5.9.1.jar"/>
+				<entry path="./lib/Migrator/" file="EventReactorCore.jar"/>
+				<entry path="./lib/Migrator/" file="EventReactorRuntime.jar"/>
+				<entry path="./lib/Migrator/" file="EventReactorUtil.jar"/></libraries>
+			</application> -->
+		</applications>
+		
+		<!--    The list of main libraries that are required to execute architectural event modules -->
+		<!--  Adjust the path to the 'libraries' folder in your computer -->	
+		<libraries>
+				<entry path="../libraries/" file="activemq-all-5.9.1.jar"/>
+				<entry path="../libraries/" file="EventArchCore.jar"/>
+				<entry path="../libraries/" file="EventArchRuntime.jar"/>
+				<entry path="../libraries/" file="EventArchUtil.jar"/>
+		</libraries>
+	</inputs>
+	<!--  Adjust the path in your computer -->	
+	<outputs path="D:/EventArchTester/bin" generate="true">
+		<repository file="information.ser" />
+	</outputs>
+	
+</config>

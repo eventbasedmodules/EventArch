@@ -1,12 +1,11 @@
-import org.eventreactor.core.compiler.EventReactorCompiler;
-import org.eventreactor.core.elements.DataCatalogue;
+import org.eventreactor.core.compiler.EventArchCompiler;
 
 public class Tester {
 
     public static void main(String[] args) {
 
         try {
-            EventReactorCompiler.CompileAppLevel("config=TestCentralized/testerconfiguration.xml");
+            EventArchCompiler.CompileAppLevel("config=TestCentralized/configuration.xml");
         } catch (Exception e) {
             e.printStackTrace();
         }

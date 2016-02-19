@@ -1,0 +1,16 @@
+initialize {
+	
+	create WrappedAdaptiveSoftware app;
+	create WrappedLoadBalancer lb;
+	create SwitchCoordinator swt;
+	create StateCoordinatorLBPeer stateLB;
+	create StateCoordinatorASPeer stateAS;
+
+	group server1 {
+			app;
+			lb;
+			swt;
+			stateLB;
+			stateAS;
+		}
+}

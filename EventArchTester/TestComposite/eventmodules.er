@@ -1,0 +1,400 @@
+//--------------------------------------- Specifications of Event Types --------------------------------
+eventtype BaseEventType{
+		 String publisher;
+		 String publisherGroup;
+		 String publisherInstance;
+		 String target;
+		 String targetGroup;
+		 String targetInstance;
+		 Long timestamp;
+		 Long thread;
+		 String scope;
+}
+
+eventtype CoordinationCommand extends BaseEventType{
+		 String command;
+}
+eventtype ConstituentState extends BaseEventType{
+		 String applicationState;
+		 String serverLoad;
+}
+eventtype StateRequest extends BaseEventType {
+}
+eventtype ApplicationTerminated extends BaseEventType{
+	String name;
+}
+eventtype ApplicationStarted extends BaseEventType{
+	String name;
+}
+eventtype LockRequest extends BaseEventType {
+	
+}
+eventtype LockReply extends BaseEventType {
+	
+}
+eventtype LockRelease extends BaseEventType {
+	
+}
+
+//--------------------------------------- Specifications of Modules --------------------------------
+modules {
+	WrappedLoadBalancer[Java]:= {ISwitchCoordinatorLB,IStateCoordinatorLB} <->{'LoadBalancer'}
+	WrappedAdaptiveSoftware[Java]:= {ISwitchCoordinatorAS,IStateCoordinatorAS} <->{'AdaptiveSoftware'}
+	
+	SwitchCoordinator[StateMachine] := {ISwitchCoordinator} <->  { 
+		initial state Start { 
+			during:
+				on (ISwitchCoordinator.e_StartedLB) -> WaitForSwitch; 
+				on (ISwitchCoordinator.e_TerminatedAS) -> WaitForRestart;
+			exit:
+				send ISwitchCoordinator.e_LB_CoordinationCMD = new CoordinationCommand(){
+					command = 'suspend';
+					target = 'WrappedLoadBalancer';
+				};	 
+		} 
+		state WaitForSwitch { 
+			entry:
+				 send ISwitchCoordinator.e_AS_CoordinationCMD = new CoordinationCommand() {
+					target = 'WrappedAdaptiveSoftware';	command = 'switch'; };
+			during:	 
+					on (ISwitchCoordinator.e_EndedSwitch) ->Start; 
+					on (ISwitchCoordinator.e_TerminatedAS) -> WaitForRestart;
+			exit:
+				send ISwitchCoordinator.e_LB_CoordinationCMD = new CoordinationCommand(){command = 'proceed'; 		target = 'WrappedLoadBalancer';};
+		}
+		state WaitForRestart { 
+			during:	 
+				on (ISwitchCoordinator.e_InitializedAS) -> Start;
+				on (ISwitchCoordinator.e_StartedLB){  
+					send ISwitchCoordinator.e_LB_CoordinationCMD = new	CoordinationCommand(){command = 'proceed';target = 'WrappedLoadBalancer';};
+				}
+		}
+	}
+	StateCoordinatorLBPeer[StateMachine] := {IStateCoordinatorLBPeer} <->  {
+		PriorityEventQueue pending_requests; 
+		initial state Idle {
+				during:
+					on (IStateCoordinatorLBPeer.e_StartedLB_UnderUtilized){
+						print ">>>>>> During Idle>>>>> Load Balancer  >>> insert in queue";
+						IStateCoordinatorLBPeer.e_LockRequestByLB = new LockRequest(){ 
+							target = 'StateCoordinatorASPeer';
+						};
+						pending_requests.add(IStateCoordinatorLBPeer.e_LockRequestByLB ); 
+						send IStateCoordinatorLBPeer.e_LockRequestByLB; 
+						send IStateCoordinatorLBPeer.e_LB_CoordinationCMD = new CoordinationCommand(){
+						  command = 'suspend';
+						  target = 'WrappedLoadBalancer';
+						};
+					} -> Waiting;
+					
+				   on(IStateCoordinatorLBPeer.e_LockRequestByAS){
+						print ">>>>>> During Idle>>>>> LB  >>> insert AS in queue";
+				   		pending_requests.add(IStateCoordinatorLBPeer.e_LockRequestByAS);
+						send IStateCoordinatorLBPeer.e_LockReplyByLB = new LockReply(){
+							target = 'StateCoordinatorASPeer';
+						};
+					}
+					on (IStateCoordinatorLBPeer.e_LockReleaseByAS){
+						print ">>>>>> During Idle>>>>> LB  >>> remove queue";
+						pending_requests.remove ();
+					}
+					on (IStateCoordinatorLBPeer.e_TerminatedLB)-> AlwaysGrant;
+			}	
+			state AlwaysGrant {
+				during:
+				   on(IStateCoordinatorLBPeer.e_LockRequestByAS){
+				     	print ">>>>>> During Always >>>>> LB  >>> insert AS in queue";
+				   		pending_requests.add(IStateCoordinatorLBPeer.e_LockRequestByAS);
+						send IStateCoordinatorLBPeer.e_LockReplyByLB = new LockReply(){
+							target = 'StateCoordinatorASPeer';
+						};
+					}
+					on (IStateCoordinatorLBPeer.e_LockReleaseByAS){
+						print ">>>>>> During Idle>>>>> LB  >>> remove queue";
+						pending_requests.remove ();
+					}
+					on(IStateCoordinatorLBPeer.e_InitiatedLB) -> Idle;
+			}
+			
+			state Waiting {
+				during:					
+					 on(IStateCoordinatorLBPeer.e_LockReplyByAS)[pending_requests.peek().get('publisher')=='StateCoordinatorLBPeer']  -> Running;
+					 on(IStateCoordinatorLBPeer.e_LockReleaseByAS){ 
+						print ">>>>>> During Waiting>>>>> LB >>> remove AS from queue";
+					 	pending_requests.remove ();
+					 	pending_requests.peek().get('publisher')=='StateCoordinatorLBPeer' -> Running; 
+					 }
+					 
+ 				     on(IStateCoordinatorLBPeer.e_LockRequestByAS){
+ 				     	print ">>>>>> During Waiting>>>>> AS >>> insert AS queue";
+ 				     	pending_requests.add(IStateCoordinatorLBPeer.e_LockRequestByAS);
+						send IStateCoordinatorLBPeer.e_LockReplyByLB = new LockReply(){
+							target = 'StateCoordinatorASPeer';
+						};
+					}
+			}
+			state Running {
+				entry:
+					print ">>>>>> Entry Running >>>>> Load Balancer >>> Proceed LB";
+					send IStateCoordinatorLBPeer.e_LB_CoordinationCMD = new CoordinationCommand(){
+						command = 'proceed';
+						target = 'WrappedLoadBalancer';
+					};
+				during:
+					on (IStateCoordinatorLBPeer.e_EndedLB) -> Idle;
+					on(IStateCoordinatorLBPeer.e_LockRequestByAS){
+						print ">>>>>> During Run>>>>> LB >>> insert AS in queue";
+						pending_requests.add(IStateCoordinatorLBPeer.e_LockRequestByAS);
+						send IStateCoordinatorLBPeer.e_LockReplyByLB = new LockReply(){
+							target = 'StateCoordinatorASPeer';
+						};
+					}
+					
+				exit:
+					print ">>>>>> During Run>>>>> LB >>> remove LB queue";
+					pending_requests.remove ();
+					send IStateCoordinatorLBPeer.e_LockReleaseLB = new LockRelease(){
+						target = 'StateCoordinatorASPeer';
+					};
+			}	
+	}
+
+	StateCoordinatorASPeer[StateMachine] := {IStateCoordinatorASPeer} <->  {
+		PriorityEventQueue pending_requests; 
+		initial state Idle {
+				during:
+					on (IStateCoordinatorASPeer.e_StartedAS){
+						print ">>>>>> During Idle>>>>> Adaptive Software  >>> insert in queue";
+						IStateCoordinatorASPeer.e_LockRequestByAS = new LockRequest(){ 
+							target = 'StateCoordinatorLBPeer';
+						};
+						pending_requests.add(IStateCoordinatorASPeer.e_LockRequestByAS ); 
+						send IStateCoordinatorASPeer.e_LockRequestByAS; 
+						send IStateCoordinatorASPeer.e_AS_CoordinationCMD = new CoordinationCommand(){
+						  command = 'suspend';
+						  target = 'WrappedAdaptiveSoftware';
+						};
+				    } -> Waiting;
+				   on(IStateCoordinatorASPeer.e_LockRequestByLB){
+				   		print ">>>>>> During Idle>>>>> Adaptive Software  >>> request by LB inserted";
+				   		pending_requests.add(IStateCoordinatorASPeer.e_LockRequestByLB);
+						send IStateCoordinatorASPeer.e_LockReplyByAS = new LockReply(){
+							target = 'StateCoordinatorLBPeer';
+						};
+					}
+					on (IStateCoordinatorASPeer.e_LockReleaseByLB){
+						print ">>>>>> During Idle>>>>> Adaptive Software  >>> remove LB from queue";
+						pending_requests.remove ();
+					}
+					on (IStateCoordinatorASPeer.e_TerminatedAS)-> AlwaysGrant;
+			}	
+			state AlwaysGrant {
+				during:
+				   on(IStateCoordinatorASPeer.e_LockRequestByLB){
+				   		print ">>>>>> During Always >>>>> AS  >>> insert LB in queue";
+				   		pending_requests.add(IStateCoordinatorASPeer.e_LockRequestByLB);
+						send IStateCoordinatorASPeer.e_LockReplyByAS = new LockReply(){
+							target = 'StateCoordinatorLBPeer';
+						};
+					}
+					on (IStateCoordinatorASPeer.e_LockReleaseByLB){
+						print ">>>>>> During Idle>>>>> AS  >>> remove queue";
+						pending_requests.remove ();
+					}
+					on(IStateCoordinatorASPeer.e_InitiatedAS) -> Idle;
+			}
+			state Waiting {
+				during:					
+					 on(IStateCoordinatorASPeer.e_LockReplyByLB)[pending_requests.peek().get('publisher')=='StateCoordinatorASPeer']  -> Running;
+					 on(IStateCoordinatorASPeer.e_LockReleaseByLB){
+						print ">>>>>> During Waiting>>>>> Adaptive Software  >>> remove LB from queue";
+					 	pending_requests.remove ();
+					 	pending_requests.peek().get('publisher')=='StateCoordinatorASPeer' -> Running; 
+					 }
+					 on(IStateCoordinatorASPeer.e_LockRequestByLB){
+ 				     	print ">>>>>> During Waiting>>>>> Adaptive Software  >>> insert LB in queue";
+ 				     	pending_requests.add(IStateCoordinatorASPeer.e_LockRequestByLB);
+						send IStateCoordinatorASPeer.e_LockReplyByAS = new LockReply(){
+							target = 'StateCoordinatorLBPeer';
+						};
+					}
+			}
+			state Running {
+				entry:
+					print ">>>>>> Entering Running>>>>> Adaptive Software  >>> respond 2 LB";
+					send IStateCoordinatorASPeer.e_AS_CoordinationCMD = new CoordinationCommand(){
+						command = 'proceed';
+						target = 'WrappedAdaptiveSoftware';
+					};
+				during:
+					on (IStateCoordinatorASPeer.e_EndedAS) -> Idle;
+					on(IStateCoordinatorASPeer.e_LockRequestByLB){
+				   		print ">>>>>> During Running>>>>> Adaptive Software  >>> request by LB inserted";
+				   		pending_requests.add(IStateCoordinatorASPeer.e_LockRequestByLB);
+						send IStateCoordinatorASPeer.e_LockReplyByAS = new LockReply(){
+							target = 'StateCoordinatorLBPeer';
+						};
+					}
+				exit:
+					print ">>>>>> Exit Running>>>>> Adaptive Software  >>> respond 2 LB";
+					pending_requests.remove ();
+					send IStateCoordinatorASPeer.e_LockReleaseAS = new LockRelease(){
+						target = 'StateCoordinatorLBPeer';
+					};
+			}	
+	}
+	CoordinatedLoadBalancer[Composite]:= {SwitchCoordinator, StateCoordinatorLBPeer} <-> {WrappedLoadBalancer}
+	CoordinatedAdaptiveSoftware[Composite]:= {StateCoordinatorASPeer} <-> {WrappedAdaptiveSoftware}
+	
+}
+//--------------------------------------- Specifications of Load Balancer Interfaces --------------------------------
+private interface ISwitchCoordinatorLB for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+								 E.publisher== 'SwitchCoordinator' }
+	}
+	provides {
+		ConstituentState e_StartedLB := 
+				before	execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+				if	(load =='OverUtilized') 
+				{ 
+					serverLoad = load;
+					applicationState = 'StartExecuting';
+					target = 'SwitchCoordinator';
+				}
+		wait when (e_StartedLB) until (e_CoordinationCMD){
+				switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend':	suspend;
+				}			
+		}
+	}
+}
+private interface IStateCoordinatorLB for WrappedLoadBalancer{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinatorLBPeer'}
+	}	
+	provides {		
+		ConstituentState e_StartedLB := 
+				before execution (void org.dummy.loadbalancer.MigrationPlanner.plan(String load)) 
+						if	(load =='UnderUtilized') { 
+							serverLoad = load; 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinatorLBPeer';
+						}
+		wait when (e_StartedLB) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+				}			
+		}
+		ConstituentState e_EndedLB := after execution (void org.dummy.loadbalancer.Migrator.migrate(..)){ 
+				applicationState = 'EndExecuting';
+		}
+	}
+}
+//--------------------------------------- Specifications of Adaptive Software Interfaces --------------------------------
+interface ISwitchCoordinatorAS for WrappedAdaptiveSoftware{
+	requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof	'CoordinationCommand' && 
+													 E.publisher == 'SwitchCoordinator' &&
+													 E.target == 'WrappedAdaptiveSoftware'}
+		on (e_CoordinationCMD) {invoke ('org.dummy.application.Optimizer', 'reconfigure',e_CoordinationCMD); }
+	}	
+	provides { 
+		ConstituentState e_EndedSwitch := 
+			after execution (static void org.dummy.application.Optimizer.reconfigure(..)) {	
+					applicationState = 'SwitchEnd';	}
+	}					
+}
+interface IStateCoordinatorAS for WrappedAdaptiveSoftware{
+requires {
+		CoordinationCommand e_CoordinationCMD = {E | E instanceof 'CoordinationCommand' &&
+												E.publisher == 'StateCoordinatorASPeer'}
+	}	
+	provides {		
+		private ConstituentState e_StartedAS := 
+				before execution (void org.dummy.application.ApplicationComponent.execute(..)) 
+						{ 
+							applicationState = 'StartExecuting';
+							target = 'StateCoordinatorASPeer';
+						}
+		wait when (e_StartedAS) until (e_CoordinationCMD){
+			switch (e_CoordinationCMD.command){
+					case 'proceed': proceed;
+					case 'suspend': suspend;
+				}			
+		}
+		private ConstituentState e_EndedAS := after execution (void org.dummy.application.ApplicationComponent.execute(..)){ 
+				applicationState = 'EndExecuting';
+				target = 'StateCoordinatorASPeer';
+				
+		}
+	}}
+//--------------------------------- Specifications of Coordinator Interfaces -------------------------
+interface ISwitchCoordinator for SwitchCoordinator{
+  	requires {
+		private ConstituentState e_StartedLB= {E | E instanceof	'ConstituentState'	&& 
+										  E.publisher == 'WrappedLoadBalancer' && 
+										  E.applicationState == 'StartExecuting' &&
+										  E.serverLoad == 'OverUtilized'}
+		
+		ConstituentState e_EndedSwitch = {E | E instanceof 'ConstituentState' &&	
+											 E.publisher == 'WrappedAdaptiveSoftware' && 
+											 E.applicationState	=='SwitchEnd'} 
+        ApplicationTerminated e_TerminatedAS = {E | E instanceof 'ApplicationTerminated' && 
+												E.name == 'WrappedAdaptiveSoftware'} 
+		ApplicationStarted e_InitializedAS = {E | E instanceof 'ApplicationStarted' &&
+										  E.name == 'WrappedAdaptiveSoftware'}						
+	} 
+	provides { 
+		private CoordinationCommand e_LB_CoordinationCMD;
+		CoordinationCommand e_AS_CoordinationCMD;
+	} 
+}				
+interface IStateCoordinatorLBPeer for StateCoordinatorLBPeer{
+requires {
+		private ConstituentState e_StartedLB_UnderUtilized = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedLoadBalancer' && 
+										  			   E.applicationState == 'StartExecuting' && 
+									  				   E.serverLoad == 'UnderUtilized'}
+		
+		private ConstituentState e_EndedLB = {E | E instanceof 'ConstituentState' && E.applicationState == 'EndExecuting'}
+		
+		LockRequest e_LockRequestByAS = { E | E instanceof 'LockRequest' && E.publisher == 'StateCoordinatorASPeer'}
+		LockRelease e_LockReleaseByAS = { E | E instanceof 'LockRelease' && E.publisher == 'StateCoordinatorASPeer'}
+		LockReply e_LockReplyByAS = { E | E instanceof 'LockReply' && E.publisher == 'StateCoordinatorASPeer'}
+		ApplicationTerminated e_TerminatedLB = { E | E instanceof 'ApplicationTerminated' && E.publisher == 'WrappedLoadBalancer'}
+		ApplicationStarted e_InitiatedLB = { E | E instanceof 'ApplicationStarted' && E.publisher == 'WrappedLoadBalancer'}
+		
+		
+	}
+provides { 
+	private CoordinationCommand e_LB_CoordinationCMD;
+	LockRequest e_LockRequestByLB; 
+	LockReply e_LockReplyByLB;
+	LockRelease e_LockReleaseLB;
+} 
+	
+}				
+
+interface IStateCoordinatorASPeer for StateCoordinatorASPeer{
+requires {
+		private ConstituentState e_StartedAS = {E | E instanceof 'ConstituentState' && 
+			 										   E.publisher == 'WrappedAdaptiveSoftware' && 
+										  			   E.applicationState == 'StartExecuting'}
+		private ConstituentState e_EndedAS = {E | E instanceof 'ConstituentState' && E.applicationState == 'EndExecuting'}
+		LockRequest e_LockRequestByLB = { E | E instanceof 'LockRequest' && E.publisher == 'StateCoordinatorLBPeer'}
+		LockRelease e_LockReleaseByLB = { E | E instanceof 'LockRelease' && E.publisher == 'StateCoordinatorLBPeer'}
+		LockReply e_LockReplyByLB = { E | E instanceof 'LockReply' && E.publisher == 'StateCoordinatorLBPeer'}
+		ApplicationTerminated e_TerminatedAS = { E | E instanceof 'ApplicationTerminated' && E.publisher == 'WrappedAdaptiveSoftware'}
+		ApplicationStarted e_InitiatedAS = { E | E instanceof 'ApplicationStarted' && E.publisher == 'WrappedAdaptiveSoftware'}
+	}
+provides { 
+	private CoordinationCommand e_AS_CoordinationCMD;
+	LockRequest e_LockRequestByAS; 
+	LockReply e_LockReplyByAS;
+	LockRelease e_LockReleaseAS;
+} 
+}							

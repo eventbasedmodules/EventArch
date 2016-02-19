@@ -19,15 +19,12 @@ public class Tester {
         	System.exit(0);
 
 		try (BufferedReader  br = new BufferedReader(new FileReader("WorkLoad.txt"))) {
-			
-
 			// we need to read request lines, parse it and invoke the application accordingly...
 			String line = br.readLine();
 			while (line != null) {
 				new ApplicationComponent().execute();
 				line = br.readLine();
 				Thread.sleep(6000);
-
 			}
 //			 Console console = System.console();
 //		        if (console == null) {
