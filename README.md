@@ -19,8 +19,9 @@ The distributions of the EventArch architectural description language
   -	The files "*.er" contain the specification of architectural event modules
   -	The file "information.ser" contains the serialized information about the compiled specifications. It is generated during the compilation program.
 
-  -	The folder "TestCentralized" contains the specifications for the usage of architectura levent modfue  information about the compiled specifications. It is generated during the compilation program.
+  -	The folder "TestCentralized" contains the specifications for the usage of architectural event modules for the centralized pattern.
 
+  -	The folder "TestPeer2Peer" contains the specifications for the usage of architectural event modules for the peer-to-peer pattern.
 
 + The folder "libraries" contains all the required libraries for executing EventArch programs. This also include the jar  files of the EventArch language.
 
